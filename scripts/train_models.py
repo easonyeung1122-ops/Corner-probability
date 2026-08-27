@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""train_models.py — Train six independent RF classifiers per corner line.
+"""train_models.py — Train one independent RF classifier per corner line (7.5 to 13.5).
 
 Usage:
     python train_models.py --features cache/features.csv --output cache/models/
@@ -28,7 +28,7 @@ FEATURE_COLS = [
     "TotalShots_N",
 ]
 
-LINES = [7.5, 8.5, 9.5, 10.5, 11.5, 12.5]
+LINES = [7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5]
 
 
 def target_col(line: float) -> str:
@@ -144,7 +144,7 @@ def save_models(models: dict, imputer, scaler, output_dir: Path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train six RF corner classifiers")
+    parser = argparse.ArgumentParser(description="Train RF corner classifiers (one per line)")
     parser.add_argument("--features", type=str, required=True, help="Path to features CSV")
     parser.add_argument("--output", type=str, required=True, help="Output model directory")
     parser.add_argument("--n-estimators", type=int, default=500, help="RF trees")
@@ -176,7 +176,7 @@ def main():
     output_dir = Path(args.output)
     save_models(models, imputer, scaler, output_dir)
     print(f"\nModels saved to {output_dir.resolve()}")
-    print(f"  Files: model_7_5.pkl, model_8_5.pkl, ..., model_12_5.pkl")
+    print(f"  Files: " + ", ".join(f"model_{str(l).replace('.', '_')}.pkl" for l in LINES))
     print(f"         imputer.pkl, scaler.pkl, feature_cols.json, meta.json")
 
 

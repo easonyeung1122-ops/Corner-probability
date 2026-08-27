@@ -35,7 +35,7 @@ FEATURE_COLS = [
     "TotalShots_N",
 ]
 
-LINES = [7.5, 8.5, 9.5, 10.5, 11.5, 12.5]
+LINES = [7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5]
 
 
 def load_models(model_dir: Path) -> tuple[dict, object, object]:
@@ -295,12 +295,13 @@ def output_results_markdown(fixtures: list, all_probs: list, all_features: list,
 
     lines_out = []
     lines_out.append(f"# EPL Corner Probability Forecast")
-    lines_out.append(f"六模型就绪 · 训练于 {meta.get('trained_at', 'unknown')[:19]}")
+    lines_out.append(f"{len(LINES)}模型就绪 · 训练于 {meta.get('trained_at', 'unknown')[:19]}")
     lines_out.append(f"{len(fixtures)} fixtures to evaluate")
     lines_out.append("")
 
-    header = "| # | Date | Home | Away | P(>7.5) | P(>8.5) | P(>9.5) | P(>10.5) | P(>11.5) | P(>12.5) | Key Drivers |"
-    sep = "|---|------|------|------|---------|---------|---------|----------|----------|----------|-------------|"
+    _cols = ["#", "Date", "Home", "Away"] + [f"P(>{line})" for line in LINES] + ["Key Drivers"]
+    header = "| " + " | ".join(_cols) + " |"
+    sep = "|" + "---|" * len(_cols)
     lines_out.append(header)
     lines_out.append(sep)
 
@@ -347,12 +348,9 @@ def output_results_tsv(fixtures: list, all_probs: list, all_features: list,
     lines_out.append("")
 
     # TSV Header row
-    col_names = [
-        "#", "日期", "主队", "客队",
-        "P(>7.5)", "P(>8.5)", "P(>9.5)",
-        "P(>10.5)", "P(>11.5)", "P(>12.5)",
-        "关键驱动因素", "修正"
-    ]
+    col_names = (["#", "日期", "主队", "客队"]
+                 + [f"P(>{line})" for line in LINES]
+                 + ["关键驱动因素", "修正"])
     lines_out.append("\t".join(col_names))
 
     any_corrected = False
@@ -362,25 +360,16 @@ def output_results_tsv(fixtures: list, all_probs: list, all_features: list,
         date = fixture.get("Date", "?")
         drivers = key_drivers(features, probs)
         corrected_flag = "是" if corrected else ""
-        col_values = [
-            str(i + 1),
-            date,
-            fixture['HomeTeam'],
-            fixture['AwayTeam'],
-            f"{probs.get(7.5, 0):.1%}",
-            f"{probs.get(8.5, 0):.1%}",
-            f"{probs.get(9.5, 0):.1%}",
-            f"{probs.get(10.5, 0):.1%}",
-            f"{probs.get(11.5, 0):.1%}",
-            f"{probs.get(12.5, 0):.1%}",
-            drivers,
-            corrected_flag,
-        ]
+        col_values = (
+            [str(i + 1), date, fixture['HomeTeam'], fixture['AwayTeam']]
+            + [f"{probs.get(line, 0):.1%}" for line in LINES]
+            + [drivers, corrected_flag]
+        )
         lines_out.append("\t".join(col_values))
 
     if any_corrected:
         lines_out.append("")
-        lines_out.append("# * 部分场次概率经单调性修正（P(>7.5) >= P(>8.5) >= ... >= P(>12.5) 约束）")
+        lines_out.append(f"# * 部分场次概率经单调性修正（{' >= '.join(f'P(>{l})' for l in LINES)} 约束）")
 
     result = "\n".join(lines_out)
 

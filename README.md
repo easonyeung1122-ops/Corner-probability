@@ -8,7 +8,7 @@
 
 ### Overview
 
-A machine learning pipeline that forecasts corner probability distributions for every upcoming English Premier League (EPL) matchweek. Six independent **Random Forest classifiers** — one per corner line from 7.5 to 12.5 — are trained on walk-forward features built from historical match data.
+A machine learning pipeline that forecasts corner probability distributions for every upcoming English Premier League (EPL) matchweek. Seven independent **Random Forest classifiers** — one per corner line from 7.5 to 13.5 — are trained on walk-forward features built from historical match data.
 
 **Data Source**: [football-data.co.uk](https://www.football-data.co.uk) — open, freely available EPL match statistics.
 
@@ -22,8 +22,9 @@ A machine learning pipeline that forecasts corner probability distributions for 
 | `model_10_5` | Total Corners > 10.5 |
 | `model_11_5` | Total Corners > 11.5 |
 | `model_12_5` | Total Corners > 12.5 |
+| `model_13_5` | Total Corners > 13.5 |
 
-Each model uses the same **19 features** but is trained independently. After prediction, **monotonicity** is enforced: P(>7.5) ≥ P(>8.5) ≥ ... ≥ P(>12.5). Fixtures where correction was applied are flagged in the output.
+Each model uses the same **19 features** but is trained independently. After prediction, **monotonicity** is enforced: P(>7.5) ≥ P(>8.5) ≥ ... ≥ P(>13.5). Fixtures where correction was applied are flagged in the output.
 
 ### Features (19 total)
 
@@ -49,7 +50,7 @@ Each model uses the same **19 features** but is trained independently. After pre
 ```
 ┌─────────────┐    ┌────────────────┐    ┌──────────────┐    ┌────────────┐
 │  Fetch Data │ → │ Build Features  │ → │ Train Models │ → │  Predict   │
-│ (football-  │    │ (walk-forward,  │    │ (6× RF, 500   │    │ (upcoming  │
+│ (football-  │    │ (walk-forward,  │    │ (7× RF, 500   │    │ (upcoming  │
 │  data.co.uk)│    │  no leakage)    │    │  trees each)  │    │  fixtures) │
 └─────────────┘    └────────────────┘    └──────────────┘    └────────────┘
 ```
@@ -173,7 +174,7 @@ This project is for educational and research purposes. Use at your own discretio
 
 ### 概述
 
-一个机器学习流水线，用于预测每轮英超 (English Premier League) 比赛的角球概率分布。六个独立的**随机森林分类器**——每条角球线（7.5 至 12.5）一个——基于历史比赛数据构建的 Walk-Forward 特征进行训练。
+一个机器学习流水线，用于预测每轮英超 (English Premier League) 比赛的角球概率分布。七个独立的**随机森林分类器**——每条角球线（7.5 至 13.5）一个——基于历史比赛数据构建的 Walk-Forward 特征进行训练。
 
 **数据来源**: [football-data.co.uk](https://www.football-data.co.uk) —— 开放、免费的英超比赛统计数据。
 
@@ -187,8 +188,9 @@ This project is for educational and research purposes. Use at your own discretio
 | `model_10_5` | 总角球数 > 10.5 |
 | `model_11_5` | 总角球数 > 11.5 |
 | `model_12_5` | 总角球数 > 12.5 |
+| `model_13_5` | 总角球数 > 13.5 |
 
-每个模型使用相同的 **19 个特征**，但独立训练。预测后强制执行**单调性约束**：P(>7.5) ≥ P(>8.5) ≥ ... ≥ P(>12.5)。被修正的场次会在输出中标记。
+每个模型使用相同的 **19 个特征**，但独立训练。预测后强制执行**单调性约束**：P(>7.5) ≥ P(>8.5) ≥ ... ≥ P(>13.5)。被修正的场次会在输出中标记。
 
 ### 特征工程（19 个特征）
 
@@ -214,7 +216,7 @@ This project is for educational and research purposes. Use at your own discretio
 ```
 ┌──────────┐    ┌──────────────┐    ┌────────────┐    ┌──────────┐
 │  数据抓取 │ → │   特征工程    │ → │  模型训练   │ → │  概率预测  │
-│ (football │    │ (Walk-Forward│    │ (6× 随机森林│    │ (未来赛程) │
+│ (football │    │ (Walk-Forward│    │ (7× 随机森林│    │ (未来赛程) │
 │  -data)   │    │  无数据泄露)  │    │  各500棵树) │    │           │
 └──────────┘    └──────────────┘    └────────────┘    └──────────┘
 ```

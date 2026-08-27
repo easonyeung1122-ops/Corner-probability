@@ -28,11 +28,11 @@ FEATURE_COLS = [
     "TotalShots_N",
 ]
 
-# Target columns (six lines)
-TARGET_COLS = [
-    "Target_7_5", "Target_8_5", "Target_9_5",
-    "Target_10_5", "Target_11_5", "Target_12_5",
-]
+# Corner lines to predict (Over targets)
+LINES = [7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5]
+
+# Target columns (one per corner line)
+TARGET_COLS = [f"Target_{str(line).replace('.', '_')}" for line in LINES]
 
 
 def safe_float(val) -> float:
@@ -193,11 +193,11 @@ def build_features(rows: list[dict], n_recent: int = 5) -> tuple[list[dict], dic
         ac = safe_float(row.get("AC"))
         if not np.isnan(hc) and not np.isnan(ac):
             total = hc + ac
-            for i, line in enumerate([7.5, 8.5, 9.5, 10.5, 11.5, 12.5]):
+            for line in LINES:
                 features[f"Target_{str(line).replace('.', '_')}"] = 1 if total > line else 0
             stats["valid_rows"] += 1
         else:
-            for line in [7.5, 8.5, 9.5, 10.5, 11.5, 12.5]:
+            for line in LINES:
                 features[f"Target_{str(line).replace('.', '_')}"] = ""
 
         # Metadata

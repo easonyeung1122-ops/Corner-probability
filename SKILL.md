@@ -8,7 +8,7 @@ description: "This skill should be used when the user wants to forecast EPL corn
 ## Purpose
 
 Forecast corner probability distributions for every upcoming EPL matchweek.
-Six independent RandomForest classifiers, one per corner line (7.5 to 12.5 in 1.0 steps),
+Seven independent RandomForest classifiers, one per corner line (7.5 to 13.5 in 1.0 steps),
 trained on walk-forward features built from football-data.co.uk historical data.
 Output is a structured probability table — no betting advice, no commentary.
 
@@ -30,7 +30,7 @@ goals, cards, or any non-corner market, respond: "本 skill 仅支持英超角�
 
 ## Core Architecture
 
-### Six Independent Classifiers
+### Seven Independent Classifiers
 
 | Model | Target (binary) |
 |-------|----------------|
@@ -40,6 +40,7 @@ goals, cards, or any non-corner market, respond: "本 skill 仅支持英超角�
 | `model_10_5` | `TotalCorners > 10.5` |
 | `model_11_5` | `TotalCorners > 11.5` |
 | `model_12_5` | `TotalCorners > 12.5` |
+| `model_13_5` | `TotalCorners > 13.5` |
 
 Each model uses the same 19-feature set, same preprocessing pipeline, but is fit independently.
 
@@ -57,9 +58,9 @@ Each model uses the same 19-feature set, same preprocessing pipeline, but is fit
 
 ### Monotonicity Enforcement (Post-Processing)
 
-After obtaining six independent probabilities per fixture, enforce:
+After obtaining seven independent probabilities per fixture, enforce:
 ```
-P(>7.5) >= P(>8.5) >= P(>9.5) >= P(>10.5) >= P(>11.5) >= P(>12.5)
+P(>7.5) >= P(>8.5) >= P(>9.5) >= P(>10.5) >= P(>11.5) >= P(>12.5) >= P(>13.5)
 ```
 If violated, apply `np.minimum.accumulate` from the top down. Mark fixtures
 where monotonicity was enforced with `*` in the output table.
@@ -103,14 +104,14 @@ Critical: Walk-forward logic prevents data leakage. For each match row:
 2. After computing features for this row, update rolling stats with this match's outcome
 3. Never include a match's own HC/AC/result in its own feature row
 
-### Step 4: Train Six Models
+### Step 4: Train Seven Models
 
 Run `scripts/train_models.py`:
 ```bash
 python scripts/train_models.py --features cache/features.csv --output cache/models/
 ```
 
-Trains all six RF classifiers, saves each as `model_{line}.pkl` plus `scaler.pkl` and `imputer.pkl`.
+Trains all seven RF classifiers, saves each as `model_{line}.pkl` plus `scaler.pkl` and `imputer.pkl`.
 
 ### Step 5: Predict Upcoming Fixtures
 
@@ -120,7 +121,7 @@ python scripts/predict.py --models cache/models/ --features cache/features.csv -
 ```
 
 Builds features for the next matchweek fixtures (from the current season CSV where `HC` is NaN),
-applies the six models, enforces monotonicity, and prints the probability table.
+applies the seven models, enforces monotonicity, and prints the probability table.
 
 ### Step 6: Output
 
@@ -181,9 +182,9 @@ columns will auto-separate into cells.
 # EPL Corner Probability Forecast — 训练于 2026-07-07T12:00:00 — 380 场历史
 # 注：* 标记表示该场概率经单调性修正 | 数据来源: football-data.co.uk | 仅供参考
 
-#	日期	主队	客队	P(>7.5)	P(>8.5)	P(>9.5)	P(>10.5)	P(>11.5)	P(>12.5)	关键驱动因素	修正
-1	2026-07-12	Arsenal	Liverpool	68.0%	52.0%	38.0%	24.0%	14.0%	6.0%	主队高近N场角球 (7.2); 两队高射门量 (29.3)	
-2	2026-07-13	Chelsea	Man City	71.0%	65.0%	59.0%	42.0%	28.0%	15.0%	两队高射门量 (31.5); 客队高客场角球失球 (6.8)	是
+#	日期	主队	客队	P(>7.5)	P(>8.5)	P(>9.5)	P(>10.5)	P(>11.5)	P(>12.5)	P(>13.5)	关键驱动因素	修正
+1	2026-07-12	Arsenal	Liverpool	68.0%	52.0%	38.0%	24.0%	14.0%	6.0%	3.0%	主队高近N场角球 (7.2); 两队高射门量 (29.3)	
+2	2026-07-13	Chelsea	Man City	71.0%	65.0%	59.0%	42.0%	28.0%	15.0%	9.0%	两队高射门量 (31.5); 客队高客场角球失球 (6.8)	是
 ```
 
 - Each row is one fixture, columns separated by Tab
@@ -196,10 +197,10 @@ columns will auto-separate into cells.
 Use `--format markdown` for the original Markdown table output:
 
 ```
-| Date | Home | Away | P(>7.5) | P(>8.5) | P(>9.5) | P(>10.5) | P(>11.5) | P(>12.5) | Key Drivers |
-|------|------|------|---------|---------|---------|----------|----------|----------|-------------|
-| Jul 12 | Arsenal | Liverpool | 0.68 | 0.52 | 0.38 | 0.24 | 0.14 | 0.06 | TeamA high CF5 + TeamB high away corners conceded |
-| *Jul 13 | Chelsea | Man City | 0.71 | 0.65 | 0.59 | 0.42 | 0.28 | 0.15 | Both teams high recent shot volume |
+| Date | Home | Away | P(>7.5) | P(>8.5) | P(>9.5) | P(>10.5) | P(>11.5) | P(>12.5) | P(>13.5) | Key Drivers |
+|------|------|------|---------|---------|---------|----------|----------|----------|----------|-------------|
+| Jul 12 | Arsenal | Liverpool | 0.68 | 0.52 | 0.38 | 0.24 | 0.14 | 0.06 | 0.03 | TeamA high CF5 + TeamB high away corners conceded |
+| *Jul 13 | Chelsea | Man City | 0.71 | 0.65 | 0.59 | 0.42 | 0.28 | 0.15 | 0.09 | Both teams high recent shot volume |
 ```
 
 ### Usage
@@ -271,7 +272,7 @@ Allow user to override (otherwise use defaults, do not ask repeatedly):
 |--------|---------|
 | `scripts/fetch_data.py` | Fetch and merge EPL CSV data from football-data.co.uk |
 | `scripts/build_features.py` | Build walk-forward features with no data leakage |
-| `scripts/train_models.py` | Train six independent RF classifiers per corner line |
+| `scripts/train_models.py` | Train seven independent RF classifiers per corner line |
 | `scripts/predict.py` | Predict probabilities for upcoming fixtures with monotonicity fix |
 | `scripts/run_pipeline.py` | Orchestrate all steps end-to-end |
 
@@ -284,5 +285,5 @@ python scripts/run_pipeline.py --cache-dir cache/ [--n-recent 5] [--start-season
 
 ## One-Liner Mission
 
-Turn "weekly EPL corner pre-match prediction" into a stable, reproducible six-line
+Turn "weekly EPL corner pre-match prediction" into a stable, reproducible seven-line
 independent probability output pipeline. Output probabilities only, no advice.

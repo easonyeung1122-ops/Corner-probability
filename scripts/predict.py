@@ -16,6 +16,7 @@ import json
 import pickle
 import sys
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -381,6 +382,40 @@ def output_results_tsv(fixtures: list, all_probs: list, all_features: list,
         print(result)
 
 
+def write_predictions_json(path: Path, fixtures: list, all_probs: list,
+                           all_features: list, all_corrected: list, model_dir: Path):
+    """Persist predictions as JSON so downstream steps (Polymarket edge) can read them."""
+    meta_path = model_dir / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+
+    rows = []
+    for fixture, probs, features, corrected in zip(fixtures, all_probs, all_features, all_corrected):
+        rows.append({
+            "date": fixture.get("Date", ""),
+            "home": fixture.get("HomeTeam", ""),
+            "away": fixture.get("AwayTeam", ""),
+            "probs": {str(line): probs.get(line) for line in LINES},
+            "corrected": bool(corrected),
+            "drivers": key_drivers(features, probs),
+            "features": {k: (None if v is None or (isinstance(v, float) and np.isnan(v)) else float(v))
+                         for k, v in features.items()},
+        })
+
+    payload = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "model": {
+            "trained_at": meta.get("trained_at"),
+            "n_matches": meta.get("n_matches"),
+            "models_dir": str(model_dir),
+        },
+        "lines": LINES,
+        "fixtures": rows,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"Predictions JSON written to {path}", file=sys.stderr)
+
+
 def output_results(fixtures: list, all_probs: list, all_features: list,
                    all_corrected: list, model_dir: Path, output_path: str = None,
                    fmt: str = "markdown"):
@@ -402,6 +437,8 @@ def main():
     parser.add_argument("--output", type=str, default="-", help="Output file or '-' for stdout")
     parser.add_argument("--format", type=str, default="tsv", choices=["markdown", "tsv"],
                         help="Output format: markdown or tsv (Excel-ready)")
+    parser.add_argument("--pred-out", type=str, default=None,
+                        help="Write predictions as JSON to this path (used by pm_edge.py)")
     args = parser.parse_args()
 
     model_dir = Path(args.models)
@@ -447,6 +484,11 @@ def main():
         all_probs.append(probs)
         all_features.append(feats)
         all_corrected.append(was_corrected)
+
+    # Optional machine-readable output for downstream steps
+    if args.pred_out:
+        write_predictions_json(Path(args.pred_out), fixtures, all_probs,
+                               all_features, all_corrected, model_dir)
 
     # Output
     output_results(fixtures, all_probs, all_features, all_corrected, model_dir,

@@ -355,6 +355,40 @@ These mirror `hk-weather-edge` so position sizing is stated identically across p
 A row is **actionable** only when all hold: `edge >= min_edge`, `acceptingOrders == true`,
 `closed == false`, and the best-ask level has non-zero size.
 
+### ⚠ Sizing gate — read before quoting any stake
+
+A walk-forward audit on 2026-09-25 (1,889 matches, 2021-08 → 2026-08; 1,039 out-of-sample)
+measured **no out-of-sample predictive power** in the current model and feature set:
+
+| Metric | Measured | Required to bet |
+|---|---|---|
+| AUC (7 lines) | 0.465 – 0.528 (6 of 7 within ±2σ of 0.50) | ≥ 0.55 |
+| Brier skill vs climatology | −0.022 … −0.002 (all negative) | > 0 |
+| Calibration slope on logit | −0.12 … +0.11 (theory = 1) | 0.7 – 1.3 |
+| Reliability monotone by decile | fails (10.5 line runs inverse) | monotone |
+| Edge capture rate (realized / claimed) | −0.88 … +0.51, median negative | ≥ 0.5 |
+
+At the 0.35 Kelly default this prices to **−0.45% … +0.30% log growth per bet** before
+spread. Root cause is upstream: the 19 team-form features correlate with total corners at
+only +0.02 … +0.07. Full audit: `references/kelly_audit_2026-09-25.md`.
+
+**Therefore:**
+
+1. **Do not quote a non-zero stake for this model until the gate above is passed.** Report
+   the probabilities and the edge table, then state plainly that the model has no measured
+   out-of-sample edge and that no position is recommended. Never present a Kelly figure
+   without this caveat.
+2. If the gate is passed, use `--kelly-frac 0.25` and `--min-edge 0.05`, not the 0.35 / 0.03
+   defaults. Derivation: `λ* = σ²/(σ²+s²)` with measured `s ≈ 3.5–5.0pp`.
+3. **Always compute a per-match aggregate exposure** and cap it at 6% of bankroll. The 7
+   full-time lines are nested (`>7.5 ⊃ >8.5 ⊃ … ⊃ >13.5`, pairwise outcome correlation
+   0.39–0.80), so they are one payoff ladder on one event, not 7 independent bets. At the
+   current defaults they sum to **27.6% of bankroll on a single match** (P&L sd 22.9%,
+   P(loss) 52%).
+4. Prefer the zero-forecast path where available: the `market_monotonicity()` check flags
+   cross-line arbitrage that requires no predictive skill. If `P(>8.5) < P(>9.5)` is quoted,
+   buying `Under 9.5` + `Over 8.5` costs < 1 and pays ≥ 1 in every state.
+
 ### Reporting rules
 
 - Always give **both the USDC amount and the share count** — e.g. `$44 / 122 份`. Never one alone.
@@ -409,9 +443,10 @@ Allow user to override (otherwise use defaults, do not ask repeatedly):
 | `max_depth` | 7 | RF max depth |
 | `min_samples_leaf` | 8 | RF min samples per leaf |
 | `bankroll` | 1000 | 本金 (USDC)，Kelly 建议金额的基数 |
-| `kelly_frac` | 0.35 | Kelly 折扣系数 |
+| `kelly_frac` | 0.35 | Kelly 折扣系数。**过门禁前不可引用 — 见 ⚠ Sizing gate；过门禁后用 0.25** |
 | `max_stake_pct` | 0.05 | 单笔上限占本金比例 |
-| `min_edge` | 0.03 | 计入可交易的最小 Edge |
+| `min_edge` | 0.03 | 计入可交易的最小 Edge。**过门禁后用 0.05** |
+| `max_match_pct` | 6% (待实现) | 同场次全部线合计上限。7 条线是一个事件，必须聚合限仓 |
 | `polymarket` | on | `--no-polymarket` 可关闭盘口对比 |
 
 ---

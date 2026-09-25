@@ -389,6 +389,33 @@ only +0.02 … +0.07. Full audit: `references/kelly_audit_2026-09-25.md`.
    cross-line arbitrage that requires no predictive skill. If `P(>8.5) < P(>9.5)` is quoted,
    buying `Under 9.5` + `Over 8.5` costs < 1 and pays ≥ 1 in every state.
 
+### The market-side signal (no model required)
+
+If the user asks why an academic paper reports corner-market edge while this skill reports none:
+the two are not in conflict. The closest study (Pålsson & Laurens 2023, Lund, LUTFMS-3476-2023)
+also concludes its models are "**not significantly better than the naive models**" — and locates
+the profit in the **market**, not the model: EPL over/under corner **Under** prices were
+systematically cheap (p = 0.0010, n = 1,211, Betfair). Its naive always-Under leg, with no model
+at all, returned +6.1% ROI.
+
+Our own panel (1,910 EPL matches, 2021-08 → 2026-08) reproduces the level but not its
+persistence: `P(Under 10.5)` = 56.05% for 2021-23 (matching the thesis's 56.6%), but 47.6% in
+2023-24 and 51.6% in 2024-25; **53.72% over all five seasons ⇒ +0.7% EV per bet at the
+thesis-average price, i.e. noise.**
+
+Rules that follow:
+
+- Do **not** quote an "always Under" recommendation. Regime-unstable; 2 of 5 seasons were
+  negative at a typical price.
+- Do **not** claim literature support for the model. Wheatcroft (2020, *IJF* 36(3), 916–932) is
+  the **goals** market, and its +0.8%/bet exists only at maximum odds across bookmakers —
+  at average odds the paper reports a loss.
+- The only defensible form is line-by-line: quote an Under-side edge solely when the executable
+  ask implies a probability below the empirical Under rate, and size it small.
+- **Log every `pm_odds.json` snapshot with the eventual corner count.** Without a price
+  time series on Polymarket the under-bias can be neither confirmed nor refuted here.
+- Full working: `references/literature_and_market_bias_2026-09-25.md`.
+
 ### Reporting rules
 
 - Always give **both the USDC amount and the share count** — e.g. `$44 / 122 份`. Never one alone.

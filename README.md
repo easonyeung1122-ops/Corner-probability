@@ -280,7 +280,8 @@ epl-corner-probability/
 ├── references/
 │   ├── data_columns.md        # Data column reference
 │   ├── feature_spec.md        # Feature specification
-│   └── kelly_audit_2026-09-25.md  # Out-of-sample audit + sizing gate derivation
+│   ├── kelly_audit_2026-09-25.md  # Out-of-sample audit + sizing gate derivation
+│   └── literature_and_market_bias_2026-09-25.md  # Paper reconciliation + Under-side bias test
 └── cache/                     # (gitignored) Cached data, models, odds
     ├── epl_merged.csv         # Raw merged match data
     ├── features.csv           # Walk-forward feature matrix
@@ -577,7 +578,8 @@ epl-corner-probability/
 ├── references/
 │   ├── data_columns.md        # 数据列参考
 │   ├── feature_spec.md        # 特征规格说明
-│   └── kelly_audit_2026-09-25.md  # 样本外审计 + 仓位门禁推导
+│   ├── kelly_audit_2026-09-25.md  # 样本外审计 + 仓位门禁推导
+│   └── literature_and_market_bias_2026-09-25.md  # 论文对照 + Under 侧偏差实测
 └── cache/                     # (gitignored) 缓存数据、模型、盘口
     ├── epl_merged.csv         # 原始合并比赛数据
     ├── features.csv           # Walk-Forward 特征矩阵

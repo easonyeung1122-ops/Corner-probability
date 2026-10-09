@@ -55,6 +55,44 @@ def kelly_stake(p: float, price: float, bankroll: float, kelly_frac: float,
     return stake, shares, f_full
 
 
+def apply_match_cap(rows: list[dict], bankroll: float,
+                    max_match_pct: float) -> list[str]:
+    """Scale down a match's stakes so the 7 nested lines sum to <= max_match_pct.
+
+    The 7 full-time lines are nested (>7.5 ⊃ >8.5 ⊃ … ⊃ >13.5; pairwise outcome
+    correlation 0.39-0.80), so they are ONE payoff ladder on one event, not 7
+    independent bets. Capping each bet at max_stake_pct alone lets a single match
+    absorb ~7x that. This caps the aggregate.
+
+    Scales every actionable row of a match by the same factor, so the relative
+    ranking inside the match is preserved. Returns human-readable cap notes.
+    """
+    cap = bankroll * max_match_pct
+    notes: list[str] = []
+    by_fx: dict[tuple[str, str], list[dict]] = {}
+    for r in rows:
+        if r["actionable"]:
+            by_fx.setdefault((r["home"], r["away"]), []).append(r)
+
+    for (home, away), fx_rows in by_fx.items():
+        total = sum(r["stake"] for r in fx_rows)
+        if total <= cap:
+            continue
+        factor = cap / total
+        for r in fx_rows:
+            r["stake"] *= factor
+            r["shares"] = r["stake"] / r["ask"] if r["ask"] else 0.0
+            if r["depth"] is not None and r["depth"] < r["shares"]:
+                r["note"] = (f"{r['note']}; " if r["note"] else "") + \
+                            f"单场限仓压缩 {factor:.0%}，深度仅 {r['depth']:.0f} 份"
+                r["actionable"] = r["depth"] > 0
+        notes.append(
+            f"{home} vs {away}: {len(fx_rows)} 条合计 ${total:.0f} → 压缩至 "
+            f"${cap:.0f}（{max_match_pct:.0%} 上限，系数 {factor:.2f}）"
+        )
+    return notes
+
+
 def load_predictions(path: Path) -> dict[tuple[str, str], dict]:
     d = json.loads(path.read_text(encoding="utf-8"))
     out = {}
@@ -194,6 +232,8 @@ def main():
     ap.add_argument("--kelly-frac", type=float, default=0.35, help="Kelly 折扣系数")
     ap.add_argument("--max-stake-pct", type=float, default=0.05,
                     help="单笔上限占本金比例")
+    ap.add_argument("--max-match-pct", type=float, default=0.06,
+                    help="同场次全部线合计上限占本金比例（7 条线嵌套，必须聚合限仓）")
     ap.add_argument("--min-edge", type=float, default=0.03, help="计入可交易的最小 Edge")
     ap.add_argument("--sides", choices=["both", "over", "under"], default="both")
     ap.add_argument("--format", choices=["tsv", "markdown"], default="tsv")
@@ -219,12 +259,14 @@ def main():
         all_rows += evaluate(pred, pm, args.min_edge, args.bankroll,
                              args.kelly_frac, args.max_stake_pct, args.sides)
 
+    cap_notes = apply_match_cap(all_rows, args.bankroll, args.max_match_pct)
+
     out: list[str] = []
     pm_meta = json.loads(pm_path.read_text(encoding="utf-8"))
     out.append(f"# Polymarket Edge Report — 盘口抓取于 {pm_meta.get('fetched_at','?')}")
     out.append(f"# 本金 {args.bankroll:,.0f} USDC · {args.kelly_frac:.0%} Kelly · "
-               f"单笔上限 {args.max_stake_pct:.1%} · Edge 阈值 {args.min_edge:.1%} · "
-               f"方向 {args.sides}")
+               f"单笔上限 {args.max_stake_pct:.1%} · 同场合计上限 {args.max_match_pct:.1%} · "
+               f"Edge 阈值 {args.min_edge:.1%} · 方向 {args.sides}")
     out.append("# Edge = 模型概率 − 可成交价(ask)；EV% = Edge / ask；仅供参考")
     out.append("")
 
@@ -268,6 +310,12 @@ def main():
             out.append(f"# ⚠ 非单调：{m}")
     else:
         out.append("# 未发现市场报价违反单调性。")
+
+    if cap_notes:
+        out.append("")
+        out.append(f"# ——— 单场聚合限仓（上限 {args.max_match_pct:.0%} 本金）———")
+        for n in cap_notes:
+            out.append(f"# {n}")
 
     if missing:
         out.append("")

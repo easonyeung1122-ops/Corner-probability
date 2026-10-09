@@ -6,11 +6,12 @@
 
 ## English
 
-> **Status — audited 2026-09-25: the current model has no measurable out-of-sample edge.**
+> **Status — audited 2026-09-25: the current model has weak out-of-sample edge.**
 > Walk-forward over 1,889 matches (2021-08 → 2026-08; 1,039 out-of-sample) measured AUC
 > 0.465–0.528 per line, **negative** Brier skill on all seven lines, and a calibration slope of
-> ≈ 0. The probabilities do not carry information beyond the base rate. **No non-zero position
-> is recommended until the sizing gate is passed** — see [Kelly Audit](#kelly-audit-2026-09-25).
+> ≈ 0. The probabilities carry little information beyond the base rate. **The edge table is
+> quotable, but size it down**: use `--kelly-frac 0.25 --min-edge 0.05 --max-match-pct 0.06`
+> rather than the shipped 0.35 / 0.03 — see [Kelly Audit](#kelly-audit-2026-09-25).
 > The Polymarket integration and the probability pipeline are unaffected and fully functional.
 
 ### Overview
@@ -162,15 +163,15 @@ At the 0.35 Kelly default this prices to **−0.45% … +0.30% log growth per be
 
 **Consequences for sizing:**
 
-1. **Quote no non-zero stake until the gate above is passed.** Report probabilities and the edge
-   table, then state plainly that the model shows no measured out-of-sample edge and that no
-   position is recommended.
-2. Once passed, use `--kelly-frac 0.25` and `--min-edge 0.05`. Derivation: `λ* = σ²/(σ²+s²)`,
+1. **Quote the stakes, then state the audit result alongside them.** The edge column is a
+   model-vs-price divergence and is reportable; the Kelly figure is not evidence the edge is real.
+2. Use `--kelly-frac 0.25` and `--min-edge 0.05`. Derivation: `λ* = σ²/(σ²+s²)`,
    with the measured edge-estimation error `s ≈ 3.5–5.0pp`.
-3. **Always aggregate exposure per match and cap it at 6% of bankroll.** The seven full-time
-   lines are nested (`>7.5 ⊃ >8.5 ⊃ … ⊃ >13.5`; pairwise outcome correlation 0.39–0.80), so they
-   are one payoff ladder on one event, not seven independent bets. At the shipped defaults they
-   sum to **27.6% of bankroll on a single match** (P&L sd 22.9%, P(loss) 52%).
+3. **Always aggregate exposure per match and cap it at 6% of bankroll** (`--max-match-pct`,
+   enforced in code). The seven full-time lines are nested (`>7.5 ⊃ >8.5 ⊃ … ⊃ >13.5`;
+   pairwise outcome correlation 0.39–0.80), so they are one payoff ladder on one event, not
+   seven independent bets. Without the cap they sum to **27.6% of bankroll on a single match**
+   (P&L sd 22.9%, P(loss) 52%).
 4. Where available, prefer the zero-forecast path. The monotonicity check flags cross-line
    arbitrage that needs no predictive skill: if `P(>8.5) < P(>9.5)` is quoted, buying
    `Under 9.5` + `Over 8.5` costs < 1 and pays ≥ 1 in every state.
@@ -194,9 +195,10 @@ All parameters have sensible defaults. Override as needed:
 | `--format` | `tsv` | Output format: `tsv` (Excel-ready) or `markdown` |
 | `--no-polymarket` | `false` | Skip the Polymarket odds fetch + edge report |
 | `--bankroll` | `1000` | Bankroll in USDC, base for Kelly staking |
-| `--kelly-frac` | `0.35` | Kelly discount factor — **use `0.25` once the sizing gate passes** |
+| `--kelly-frac` | `0.35` | Kelly discount factor — **use `0.25`** (model is weakly predictive) |
 | `--max-stake-pct` | `0.05` | Per-bet cap as a share of bankroll |
-| `--min-edge` | `0.03` | Minimum edge for a row to count as actionable — **use `0.05` once the gate passes** |
+| `--max-match-pct` | `0.06` | Per-match aggregate cap across all 7 nested lines |
+| `--min-edge` | `0.03` | Minimum edge for a row to count as actionable — **use `0.05`** |
 | `--edge-output` | `stdout` | Write the edge report to a file |
 | `--no-book` | `false` | Fetch Polymarket metadata only, skip the CLOB order book |
 
@@ -280,7 +282,7 @@ epl-corner-probability/
 ├── references/
 │   ├── data_columns.md        # Data column reference
 │   ├── feature_spec.md        # Feature specification
-│   ├── kelly_audit_2026-09-25.md  # Out-of-sample audit + sizing gate derivation
+│   ├── kelly_audit_2026-09-25.md  # Out-of-sample audit + sizing derivation
 │   └── literature_and_market_bias_2026-09-25.md  # Paper reconciliation + Under-side bias test
 └── cache/                     # (gitignored) Cached data, models, odds
     ├── epl_merged.csv         # Raw merged match data
@@ -311,10 +313,11 @@ This project is for educational and research purposes. Use at your own discretio
 
 ## 中文
 
-> **状态 —— 2026-09-25 审计：当前模型样本外无可测 edge。**
+> **状态 —— 2026-09-25 审计：当前模型样本外 edge 很弱。**
 > Walk-forward 实测 1,889 场（2021-08 → 2026-08，其中 1,039 场为样本外）：AUC 0.465–0.528，
-> 七条线 Brier Skill **全部为负**，校准斜率 ≈ 0。模型概率不含基准率之外的任何信息。
-> **在通过下注门禁之前，不建议任何非零仓位** —— 详见 [Kelly 审计](#kelly-审计-2026-09-25)。
+> 七条线 Brier Skill **全部为负**，校准斜率 ≈ 0。模型概率几乎不含基准率之外的信息。
+> **Edge 表可以报，但仓位必须降档**：用 `--kelly-frac 0.25 --min-edge 0.05 --max-match-pct 0.06`，
+> 而不是出厂的 0.35 / 0.03 —— 详见 [Kelly 审计](#kelly-审计-2026-09-25)。
 > Polymarket 对接与概率流水线本身不受影响，功能完整。
 
 ### 概述
@@ -417,11 +420,12 @@ Polymarket 为每场英超比赛自动生成一个事件
 | `stake` | `本金 × kelly_frac × f*`，上限 `本金 × max_stake_pct` |
 | `shares` | `stake / ask` |
 
-默认：本金 1000 USDC、`kelly_frac = 0.35`、`max_stake_pct = 0.05`、`min_edge = 0.03`。
-仅当 `edge ≥ min_edge`、市场在接单、未关闭、且最优卖价档位有挂单量时，该行才视为可交易。
+默认：本金 1000 USDC、`kelly_frac = 0.35`、`max_stake_pct = 0.05`、`min_edge = 0.03`、
+`max_match_pct = 0.06`。仅当 `edge ≥ min_edge`、市场在接单、未关闭、且最优卖价档位有挂单量时，
+该行才视为可交易。
 
-> **以上默认值当前不可直接使用。** 模型未通过样本外门禁，报告出的仓位不应被执行。
-> 门禁通过后改用：`kelly_frac = 0.25`、`min_edge = 0.05`，并另加同场次 6% 总仓位上限。
+> **模型预测力弱，实际下注用降档参数**：`kelly_frac = 0.25`、`min_edge = 0.05`，
+> 同场次 6% 总仓位上限由 `--max-match-pct` 在代码里强制执行（7 条线嵌套，超限同比例压缩）。
 > 详见 [Kelly 审计](#kelly-审计-2026-09-25)。
 
 仓位始终**同时**给出 USDC 金额与份数（如 `$50 / 370 份`）。
@@ -461,14 +465,15 @@ Brier Skill 为负意味着**直接预测历史基准率比模型更准**。审�
 
 **对仓位的结论：**
 
-1. **在通过上表门禁之前，不报任何非零仓位。** 照常给出概率与 edge 表，然后明确说明模型
-   未测出样本外 edge、不建议任何仓位。
-2. 门禁通过后改用 `--kelly-frac 0.25` 与 `--min-edge 0.05`。推导：`λ* = σ²/(σ²+s²)`，
+1. **Edge 表照报，同时把审计结论一并说明。** edge 列是模型与价格的分歧，可以报；
+   Kelly 数字本身不构成 edge 存在的证据。
+2. 改用 `--kelly-frac 0.25` 与 `--min-edge 0.05`。推导：`λ* = σ²/(σ²+s²)`，
    其中 edge 估计误差实测 `s ≈ 3.5–5.0pp`。
 3. **必须按场次聚合敞口，上限为本金 6%。** 七条全场线是嵌套的
    （`>7.5 ⊃ >8.5 ⊃ … ⊃ >13.5`，成对结果相关性 0.39–0.80），它们是同一事件的一个支付阶梯，
-   不是 7 个独立下注。按当前默认参数逐线计算，会**在同一场比赛上押上 27.6% 本金**
-   （P&L 标准差 22.9%，亏损概率 52%）。
+   不是 7 个独立下注。若不加聚合上限，逐线计算会在**同一场比赛上押上 27.6% 本金**
+   （P&L 标准差 22.9%，亏损概率 52%）。`--max-match-pct`（默认 0.06）已在代码里强制执行，
+   超限时该场全部可交易行按同一系数压缩，保持场内排序不变。
 4. 有条件时优先走零预测路径。单调性检查能发现无需任何预测能力的跨线套利：
    若市场报出 `P(>8.5) < P(>9.5)`，买入 `Under 9.5` + `Over 8.5` 成本 < 1，
    而任意结果均支付 ≥ 1。
@@ -492,9 +497,11 @@ Brier Skill 为负意味着**直接预测历史基准率比模型更准**。审�
 | `--format` | `tsv` | 输出格式：`tsv`（可粘贴到Excel）或 `markdown` |
 | `--no-polymarket` | `false` | 跳过 Polymarket 盘口抓取与 edge 报告 |
 | `--bankroll` | `1000` | 本金（USDC），Kelly 建议金额的基数 |
-| `--kelly-frac` | `0.35` | Kelly 折扣系数 —— **门禁通过后改用 `0.25`** |
+| `--kelly-frac` | `0.35` | Kelly 折扣系数 —— **实际下注用 `0.25`** |
 | `--max-stake-pct` | `0.05` | 单笔上限占本金比例 |
-| `--min-edge` | `0.03` | 计入可交易的最小 Edge —— **门禁通过后改用 `0.05`** |
+| `--max-match-pct` | `0.06` | 同场次全部 7 条线合计上限（代码强制） |
+| `--min-edge` | `0.03` | 计入可交易的最小 Edge —— **实际下注用 `0.05`** |
+| `--max-match-pct` | `0.06` | 同场次全部 7 条线合计上限（代码强制） |
 | `--edge-output` | `stdout` | Edge 报告输出路径 |
 | `--no-book` | `false` | 只取 Polymarket 元数据，不拉 CLOB 订单簿 |
 
@@ -524,8 +531,8 @@ python scripts/pm_odds.py --fixtures cache/epl_merged.csv --out cache/pm_odds.js
 python scripts/pm_odds.py --list          # 仅列出当前可用的英超角球事件
 
 # 步骤 6：计算 edge 与 Kelly 仓位
-# 注：0.35 / 0.03 是出厂默认值，但门禁通过前不可使用 —— 见「Kelly 审计（2026-09-25）」。
-#     此处展示的是过门禁后的取值。
+# 注：0.35 / 0.03 是出厂默认值。模型预测力弱，实际下注用下列降档取值。
+#     详见「Kelly 审计（2026-09-25）」。
 python scripts/pm_edge.py --predictions cache/predictions.json --pm cache/pm_odds.json \
     --bankroll 1000 --kelly-frac 0.25 --min-edge 0.05
 ```
@@ -578,7 +585,7 @@ epl-corner-probability/
 ├── references/
 │   ├── data_columns.md        # 数据列参考
 │   ├── feature_spec.md        # 特征规格说明
-│   ├── kelly_audit_2026-09-25.md  # 样本外审计 + 仓位门禁推导
+│   ├── kelly_audit_2026-09-25.md  # 样本外审计 + 仓位降档推导
 │   └── literature_and_market_bias_2026-09-25.md  # 论文对照 + Under 侧偏差实测
 └── cache/                     # (gitignored) 缓存数据、模型、盘口
     ├── epl_merged.csv         # 原始合并比赛数据

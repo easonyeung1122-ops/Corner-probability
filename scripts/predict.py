@@ -325,7 +325,7 @@ def output_results_markdown(fixtures: list, all_probs: list, all_features: list,
 
     lines_out.append("")
     lines_out.append("---")
-    lines_out.append("数据来源: football-data.co.uk | 模型: RandomForest × 6 | 概率仅供参考，不构成任何建议")
+    lines_out.append(f"数据来源: football-data.co.uk | 模型: RandomForest × {len(LINES)} | 概率仅供参考，不构成任何建议")
 
     print("\n".join(lines_out))
 
@@ -424,8 +424,20 @@ def output_results(fixtures: list, all_probs: list, all_features: list,
         output_results_tsv(fixtures, all_probs, all_features, all_corrected,
                            model_dir, output_path)
     else:
-        output_results_markdown(fixtures, all_probs, all_features, all_corrected,
-                                model_dir)
+        # Markdown formatter prints to stdout; honour --output by tee-ing it.
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            output_results_markdown(fixtures, all_probs, all_features,
+                                    all_corrected, model_dir)
+        text = buf.getvalue()
+        if output_path and output_path != "-":
+            with open(output_path, "w", encoding="utf-8", newline="") as f:
+                f.write(text)
+            print(f"Markdown results saved to {output_path}", file=sys.stderr)
+        else:
+            print(text)
 
 
 def main():

@@ -113,7 +113,7 @@ def train_models(X: np.ndarray, y_dict: dict[str, np.ndarray],
     return models, imputer, scaler
 
 
-def save_models(models: dict, imputer, scaler, output_dir: Path):
+def save_models(models: dict, imputer, scaler, output_dir: Path, n_matches: int = 0):
     """Save all models + preprocessors to disk."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -136,6 +136,7 @@ def save_models(models: dict, imputer, scaler, output_dir: Path):
     meta = {
         "trained_at": datetime.now().isoformat(),
         "n_estimators": models[list(models.keys())[0]].n_estimators if models else 0,
+        "n_matches": n_matches,
         "features": FEATURE_COLS,
         "lines": LINES,
     }
@@ -174,7 +175,7 @@ def main():
     )
 
     output_dir = Path(args.output)
-    save_models(models, imputer, scaler, output_dir)
+    save_models(models, imputer, scaler, output_dir, n_matches=int(X.shape[0]))
     print(f"\nModels saved to {output_dir.resolve()}")
     print(f"  Files: " + ", ".join(f"model_{str(l).replace('.', '_')}.pkl" for l in LINES))
     print(f"         imputer.pkl, scaler.pkl, feature_cols.json, meta.json")

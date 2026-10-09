@@ -137,8 +137,24 @@ Builds features for the next matchweek fixtures (from the current season CSV whe
 applies the seven models, enforces monotonicity, prints the probability table, and writes
 `cache/predictions.json` for the edge layer.
 
-If `upcoming fixtures: 0` is reported, the season CSV has no unplayed rows — stop and tell the
-user the fixtures are missing. Do not fabricate a fixture list.
+If `upcoming fixtures: 0` is reported, the season CSV has no unplayed rows. football-data.co.uk
+publishes only completed matches, so **this is the normal state for any mid-season run** — not a
+data failure. Inject the fixtures from the built-in official schedule instead:
+
+```bash
+python scripts/inject_fixtures.py --mw 6        # writes cache/epl_merged_mw6.csv
+python scripts/predict.py --models cache/models/ --features cache/features.csv \
+    --matches cache/epl_merged_mw6.csv --format tsv --output cache/epl_mw6_corners.tsv \
+    --pred-out cache/predictions.json
+python scripts/pm_odds.py --fixtures cache/epl_merged_mw6.csv --out cache/pm_odds.json
+python scripts/pm_edge.py --predictions cache/predictions.json --pm cache/pm_odds.json \
+    --format tsv --output cache/epl_mw6_edge.tsv
+```
+
+`inject_fixtures.py` slices the 380-fixture official schedule in `temp_build_fixtures.py`
+(10 matches per round) and appends the target round as blank-`HC/AC` rows. Team names are mapped
+to football-data short forms automatically. Never fabricate a fixture list — if the round is
+outside 1–38, or the schedule table does not cover it, stop and tell the user.
 
 ### Step 6: Fetch Polymarket Corner Odds
 
@@ -510,6 +526,8 @@ Applies to the Polymarket edge layer specifically:
 | `scripts/train_models.py` | Train seven independent RF classifiers per corner line |
 | `scripts/predict.py` | Predict probabilities for upcoming fixtures with monotonicity fix |
 | `scripts/pm_odds.py` | Fetch live Polymarket total-corner odds (Gamma + CLOB) |
+| `scripts/inject_fixtures.py` | Inject round N of the built-in official fixture list as upcoming rows |
+| `scripts/temp_build_fixtures.py` | Source of the official 2026-27 380-fixture schedule (used by inject_fixtures) |
 | `scripts/pm_edge.py` | Model-vs-market edge, EV%, Kelly stake in USDC + shares |
 | `scripts/run_pipeline.py` | Orchestrate all steps end-to-end |
 

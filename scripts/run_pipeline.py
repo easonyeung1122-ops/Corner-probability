@@ -73,8 +73,14 @@ def main():
                         help="Polymarket 只取元数据，不拉 CLOB 订单簿")
     args = parser.parse_args()
 
+    # Relative cache paths must anchor to the skill root, not scripts/ —
+    # subprocesses run with cwd=SCRIPT_DIR.
     cache_dir = Path(args.cache_dir)
+    if not cache_dir.is_absolute():
+        cache_dir = SCRIPT_DIR.parent / cache_dir
     models_dir = Path(args.models_dir) if args.models_dir else cache_dir / "models"
+    if not models_dir.is_absolute():
+        models_dir = SCRIPT_DIR.parent / models_dir
 
     current_start = current_season_start()
     print(f"EPL Corner Probability Pipeline")

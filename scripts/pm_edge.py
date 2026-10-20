@@ -139,21 +139,40 @@ def evaluate(pred: dict, pm: dict | None, min_edge: float, bankroll: float,
         ask_u, bid_u = _f(under.get("best_ask")), _f(under.get("best_bid"))
         size_o, size_u = _f(over.get("ask_size")), _f(under.get("ask_size"))
 
+        # --- Shell book detection -------------------------------------------
+        # Polymarket lists a market before anyone quotes it: both sides sit at
+        # ~0.97/0.98 ask and ~0.02/0.03 bid, depth 20-50 shares. Such a book
+        # has no information and its mid (~0.50) destroys market monotonicity
+        # by construction. Treat it as "no quote".
+        # A real book has over_ask + under_ask <= ~1.05 and a non-trivial depth.
+        sum_ask = (ask_o or 0) + (ask_u or 0)
+        shell = (ask_o is not None and ask_u is not None
+                 and sum_ask > 1.05
+                 and max(size_o or 0, size_u or 0) < 100)
+
         candidates = []
-        if sides in ("both", "over") and ask_o is not None and 0 < ask_o < 1:
+        if not shell and sides in ("both", "over") and ask_o is not None and 0 < ask_o < 1:
             mid_o = (ask_o + bid_o) / 2 if bid_o is not None else ask_o
             candidates.append({
                 "side": "Over", "price": ask_o, "bid": bid_o, "mid": mid_o,
                 "p": p_over, "edge": p_over - ask_o, "edge_mid": p_over - mid_o,
                 "depth": size_o,
             })
-        if sides in ("both", "under") and ask_u is not None and 0 < ask_u < 1:
+        if not shell and sides in ("both", "under") and ask_u is not None and 0 < ask_u < 1:
             mid_u = (ask_u + bid_u) / 2 if bid_u is not None else ask_u
             candidates.append({
                 "side": "Under", "price": ask_u, "bid": bid_u, "mid": mid_u,
                 "p": 1.0 - p_over, "edge": (1.0 - p_over) - ask_u,
                 "edge_mid": (1.0 - p_over) - mid_u, "depth": size_u,
             })
+
+        if shell:
+            row.update({"side": "", "ask": None, "bid": None, "mid": None,
+                        "edge_ask": None, "edge_mid": None,
+                        "stake": 0.0, "shares": 0.0, "depth": None,
+                        "actionable": False, "note": "空盘（无真实报价）"})
+            rows.append(row)
+            continue
 
         if not candidates:
             row.update({"side": "", "ask": None, "bid": None, "mid": None,

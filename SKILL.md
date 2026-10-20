@@ -452,6 +452,13 @@ Rules that follow:
 - **Stale open events.** Events whose match has already been played can linger at
   `closed=false` while every sub-market inside is closed. Check the per-market
   `acceptingOrders` flag, not the event-level flag.
+- **Shell books.** Polymarket lists a market before anyone quotes it: both sides sit at
+  ~0.97/0.98 ask and ~0.02/0.03 bid with depth of 20–50 shares. These carry no information
+  and their mid (~0.50) breaks market monotonicity by construction. `pm_edge.py` detects them
+  (`over_ask + under_ask > 1.05` AND max depth < 100) and reports `空盘（无真实报价）`
+  instead of scoring them. Without this filter the monotonicity check emits false alarms on
+  every not-yet-quoted line. A real book on the mid lines (9.5 / 10.5) shows 500-share depth
+  with a tight 0.40–0.63 ask range, typically appearing 3–6 days before kickoff.
 - **Cadence gap.** Corner events are generated roughly 5–13 days before kickoff. Between
   matchweeks there may be no open EPL corner market at all — this is normal, not a bug.
 - **Series pagination.** `series_id=10188` with `limit=100` only returns the newest 100 events

@@ -82,7 +82,12 @@ def apply_match_cap(rows: list[dict], bankroll: float,
         for r in fx_rows:
             r["stake"] *= factor
             r["shares"] = r["stake"] / r["ask"] if r["ask"] else 0.0
+            # Compressing the stake does not create depth. If the book cannot
+            # fill the reduced size, cap the row at what is actually there.
             if r["depth"] is not None and r["depth"] < r["shares"]:
+                fill_shares = float(r["depth"])
+                r["shares"] = fill_shares
+                r["stake"] = fill_shares * r["ask"]
                 r["note"] = (f"{r['note']}; " if r["note"] else "") + \
                             f"单场限仓压缩 {factor:.0%}，深度仅 {r['depth']:.0f} 份"
                 r["actionable"] = r["depth"] > 0
@@ -197,7 +202,13 @@ def evaluate(pred: dict, pm: dict | None, min_edge: float, bankroll: float,
         if (best["depth"] or 0) <= 0:
             note.append("盘口无深度")
         elif best["depth"] is not None and stake > 0 and best["depth"] < shares:
-            note.append(f"深度不足，仅可成交 {best['depth']:.0f} 份")
+            # The reported stake must be what can actually be filled at the best
+            # ask. Quoting the full Kelly-sized amount against a 5-share book is
+            # a phantom position.
+            capped_shares = float(best["depth"])
+            capped_stake = capped_shares * best["price"]
+            note.append(f"深度不足，仅可成交 {capped_shares:.0f} 份")
+            stake, shares = capped_stake, capped_shares
 
         row.update({
             "side": best["side"], "ask": best["price"], "bid": best["bid"],

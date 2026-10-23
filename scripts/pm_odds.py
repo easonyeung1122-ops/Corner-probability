@@ -148,16 +148,29 @@ def _is_epl_corner_event(ev: dict) -> bool:
 
 
 def discover_events(include_closed: bool = True) -> list[dict]:
-    """Return all EPL Total Corners events (open first, then recent closed)."""
+    """Return all EPL Total Corners events (open first, then recent closed).
+
+    Ordering matters: the Gamma API caps a page at 100 events, and the tag
+    scan is dominated by player props. Sorting by endDate descending pushes the
+    NEXT matchweek to the front and pushes the matchweek you actually want off
+    the page (observed 2026-10-23: MW8 events were missing entirely while MW9
+    filled the page). Sort by startDate descending so the soonest-to-be-played
+    corner events are always on page 1, and paginate as a backstop.
+    """
     found: dict[str, dict] = {}
     closed_opts = ["false", "true"] if include_closed else ["false"]
 
     urls = []
     for c in closed_opts:
-        urls.append(f"{GAMMA}/events?tag_slug=epl&closed={c}&limit=100&offset=0"
-                    f"&order=endDate&ascending=false")
-        urls.append(f"{GAMMA}/events?series_id={EPL_SERIES_ID}&closed={c}&limit=100"
-                    f"&order=endDate&ascending=false")
+        for offset in (0, 100, 200):
+            urls.append(
+                f"{GAMMA}/events?tag_slug=epl&closed={c}&limit=100&offset={offset}"
+                f"&order=startDate&ascending=false"
+            )
+            urls.append(
+                f"{GAMMA}/events?series_id={EPL_SERIES_ID}&closed={c}&limit=100"
+                f"&offset={offset}&order=startDate&ascending=false"
+            )
 
     for u in urls:
         try:
@@ -165,7 +178,9 @@ def discover_events(include_closed: bool = True) -> list[dict]:
         except Exception as e:  # noqa: BLE001
             print(f"[warn] {u} -> {e!r}", file=sys.stderr)
             continue
-        for ev in (d or []):
+        if not d:
+            continue
+        for ev in d:
             if _is_epl_corner_event(ev):
                 found[ev["slug"]] = ev
     return sorted(found.values(), key=lambda e: e.get("endDate") or "")

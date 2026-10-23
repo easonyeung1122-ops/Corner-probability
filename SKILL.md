@@ -463,6 +463,24 @@ Rules that follow:
   matchweeks there may be no open EPL corner market at all — this is normal, not a bug.
 - **Series pagination.** `series_id=10188` with `limit=100` only returns the newest 100 events
   of the series, most of which are player props. The tag scan is the reliable path for corners.
+- **Sort direction is `ascending=true`, never `false`.** A page holds 100 events of which
+  only ~10 are corner events (the rest are player props), so the ordering decides which
+  matchweek you see. `order=endDate&ascending=false` puts the FARTHEST future matchweek
+  first and pushes the matchweek being forecast off page 1 — on 2026-10-23 this hid 4 of
+  10 MW8 events while MW9 filled the page. `ascending=true` puts the soonest-to-be-played
+  matches first. `order=startDate` is also wrong: it sorts by market creation time, which
+  puts the earliest-created future rounds at the front.
+- **Slug dates drift from the fixture date.** An event's slug date is its own `endDate`,
+  which can differ by a day from the schedule table (on 2026-10-23, Crystal Palace vs
+  Newcastle carried slug date 2026-10-25 while the table said 24/10, and Ipswich vs
+  Nottingham Forest carried 10-23). `pm_odds.py` therefore probes a ±3 day slug window
+  per fixture in addition to the page scan, so a fixture is found even when it is outside
+  the scanned pages.
+- **Slug club codes are conventional, not mechanical.** `manchester city` -> `mac`,
+  `manchester united` -> `mun`, `crystal palace` -> `cry`, `aston villa` -> `ast`,
+  `nottingham forest` -> `not`, `tottenham hotspur` -> `tot`, `newcastle united` -> `new`.
+  A naive vowel-stripping fallback yields `stn` for Aston Villa and silently misses the
+  event. The `_SLUG_CODE` table in `pm_odds.py` is authoritative.
 
 ---
 

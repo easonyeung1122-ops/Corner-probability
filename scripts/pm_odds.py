@@ -83,6 +83,53 @@ _DROP_TOKENS = {
     "fc", "afc", "cf", "sc", "ac", "club", "the",
 }
 
+# Polymarket's 3-letter club codes inside event slugs. Most are derivable
+# (arsenal -> ars, chelsea -> che), but these are conventional and must be
+# listed explicitly.
+_SLUG_CODE = {
+    "manchester city": "mac",
+    "manchester united": "mun",
+    "crystal palace": "cry",
+    "nottingham forest": "not",
+    "tottenham hotspur": "tot",
+    "newcastle united": "new",
+    "brighton and hove albion": "bri",
+    "afc bournemouth": "bou",
+    "leeds united": "lee",
+    "aston villa": "ast",
+    "west ham united": "wes",
+    "wolverhampton wanderers": "wol",
+    "sheffield united": "she",
+    "hull city": "hul",
+    "ipswich town": "ips",
+    "coventry city": "cov",
+    "norwich city": "nor",
+    "leicester city": "lei",
+    "sunderland": "sun",
+    "liverpool": "liv",
+    "arsenal": "ars",
+    "chelsea": "che",
+    "everton": "eve",
+    "fulham": "ful",
+    "brentford": "bre",
+    "brighton": "bri",
+    "wolves": "wol",
+    "manchester": "mac",
+    "bristol city": "bri",
+    "cardiff city": "car",
+    "swansea city": "swa",
+    "stoke city": "sto",
+    "huddersfield town": "hud",
+    "sheffield wednesday": "shw",
+    "birmingham city": "bir",
+    "blackburn rovers": "bla",
+    "bolton wanderers": "bol",
+    "wigan athletic": "wig",
+    "watford": "wat",
+    "reading": "rea",
+    "derby county": "der",
+}
+
 
 def norm_team(name: str) -> str:
     """Normalize a club name to a comparable lowercase key."""
@@ -147,15 +194,64 @@ def _is_epl_corner_event(ev: dict) -> bool:
     return slug.startswith("epl-") and ("total-corners" in slug or "Total Corners" in title)
 
 
-def discover_events(include_closed: bool = True) -> list[dict]:
-    """Return all EPL Total Corners events (open first, then recent closed).
+def _slug_3(name: str) -> str:
+    """Polymarket's 3-letter club code used inside event slugs.
 
-    Ordering matters: the Gamma API caps a page at 100 events, and the tag
-    scan is dominated by player props. Sorting by endDate descending pushes the
-    NEXT matchweek to the front and pushes the matchweek you actually want off
-    the page (observed 2026-10-23: MW8 events were missing entirely while MW9
-    filled the page). Sort by startDate descending so the soonest-to-be-played
-    corner events are always on page 1, and paginate as a backstop.
+    Derivable from the club name for most clubs ("Arsenal" -> "ars"), but
+    several are conventional: Manchester City -> "mac", Manchester United ->
+    "mun", Crystal Palace -> "cry", Nottingham Forest -> "not", Tottenham ->
+    "tot", Newcastle -> "new", Aston Villa -> "ast". The override table is
+    authoritative for every club that appears in the EPL; the fallback strips
+    vowels and takes the first three consonants.
+    """
+    key = norm_team(name)
+    if key in _SLUG_CODE:
+        return _SLUG_CODE[key]
+    consonants = "".join(ch for ch in key if ch not in "aeiou ")
+    if len(consonants) >= 3:
+        return consonants[:3]
+    return (key.replace(" ", "") + consonants)[:3]
+
+
+def _candidate_slugs(fixture: dict) -> list[str]:
+    """Every plausible slug for a fixture, across nearby dates.
+
+    Polymarket's slug date is the event's own endDate, which does not always
+    equal the fixture date in our schedule table: on 2026-10-23 the MW8 event
+    Crystal Palace vs Newcastle carried slug date 2026-10-25 while our table
+    said 24/10. Probe a +/-3 day window so a one-day schedule drift on either
+    side still resolves.
+    """
+    fdate = _parse_date(fixture.get("date", ""))
+    if not fdate:
+        return []
+    h = _slug_3(fixture["home"])
+    a = _slug_3(fixture["away"])
+    out = []
+    for delta in (0, -1, 1, -2, 2, -3, 3):
+        d = fdate + timedelta(days=delta)
+        out.append(f"epl-{h}-{a}-{d.strftime('%Y-%m-%d')}-total-corners")
+    return out
+
+
+def discover_events(include_closed: bool = True,
+                    extra_slugs: list[str] | None = None) -> list[dict]:
+    """Return all EPL Total Corners events.
+
+    Two problems made the scan unreliable before (both observed 2026-10-23):
+
+    1. **Sort direction.** The Gamma API caps a page at 100 events and the
+       `tag_slug=epl` scan is ~90% player props, so only ~10 corner events
+       survive per page. Sorting by `endDate` DESCENDING puts the FARTHEST
+       future matchweek first and pushes the matchweek you want off the page —
+       MW8 was missing entirely while MW9 filled it. `ascending=true` puts the
+       soonest-to-be-played matches first, which is what a forecast wants.
+    2. **Slug date drift.** An event's slug date is its own endDate, which can
+       differ by a day from the fixture date in our schedule table. Probing a
+       +/-3 day slug window resolves the drift.
+
+    `extra_slugs` adds exact-slug lookups for specific fixtures, so a match
+    outside the scanned pages is still found.
     """
     found: dict[str, dict] = {}
     closed_opts = ["false", "true"] if include_closed else ["false"]
@@ -165,11 +261,11 @@ def discover_events(include_closed: bool = True) -> list[dict]:
         for offset in (0, 100, 200):
             urls.append(
                 f"{GAMMA}/events?tag_slug=epl&closed={c}&limit=100&offset={offset}"
-                f"&order=startDate&ascending=false"
+                f"&order=endDate&ascending=true"
             )
             urls.append(
                 f"{GAMMA}/events?series_id={EPL_SERIES_ID}&closed={c}&limit=100"
-                f"&offset={offset}&order=startDate&ascending=false"
+                f"&offset={offset}&order=endDate&ascending=true"
             )
 
     for u in urls:
@@ -183,6 +279,20 @@ def discover_events(include_closed: bool = True) -> list[dict]:
         for ev in d:
             if _is_epl_corner_event(ev):
                 found[ev["slug"]] = ev
+
+    # Exact-slug fallback: authoritative for a fixture regardless of paging.
+    for slug in (extra_slugs or []):
+        if slug in found:
+            continue
+        try:
+            d = _get(f"{GAMMA}/events?slug={slug}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[warn] slug {slug} -> {e!r}", file=sys.stderr)
+            continue
+        for ev in (d or []):
+            if _is_epl_corner_event(ev):
+                found[ev["slug"]] = ev
+
     return sorted(found.values(), key=lambda e: e.get("endDate") or "")
 
 
@@ -338,7 +448,15 @@ def match_fixture(fixture: dict, events: list[dict], min_score: float = 0.85):
 # ---------------------------------------------------------------------------
 
 def build_payload(fixtures_path: Path | None, with_book: bool, include_closed: bool) -> dict:
-    events = discover_events(include_closed=include_closed)
+    fixtures = load_upcoming_fixtures(fixtures_path) if fixtures_path else []
+
+    # Exact-slug probes for every fixture, so a match that fell outside the
+    # scanned pages is still found. Probing is cheap and keyless.
+    extra_slugs = []
+    for fx in fixtures:
+        extra_slugs.extend(_candidate_slugs(fx))
+
+    events = discover_events(include_closed=include_closed, extra_slugs=extra_slugs)
     payload = {
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
         "source": {"gamma": GAMMA, "clob": CLOB, "series_id": EPL_SERIES_ID},
@@ -359,7 +477,6 @@ def build_payload(fixtures_path: Path | None, with_book: bool, include_closed: b
     if not fixtures_path.exists():
         raise SystemExit(f"fixtures CSV not found: {fixtures_path}")
 
-    fixtures = load_upcoming_fixtures(fixtures_path)
     unmatched = []
     for fx in fixtures:
         hit = match_fixture(fx, events)

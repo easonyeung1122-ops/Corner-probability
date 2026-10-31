@@ -168,24 +168,51 @@ For every upcoming fixture, finds the matching Polymarket event
 sides of all seven full-time total-corner lines straight from the CLOB order book.
 Skip with `--no-book` to fetch metadata only (faster, no live prices).
 
-### Step 7: Edge Report
+### Step 7: Calibrate the probabilities before scoring edge (mandatory)
 
-Run `scripts/pm_edge.py`:
+Run `scripts/calibrate_bias.py`:
+```bash
+python scripts/calibrate_bias.py --features cache/features.csv --merged cache/epl_merged.csv \
+    --models cache/models --output cache/bias.json
+```
+
+A RandomForest trained over five seasons averages over their corner rate (~10.3 per match).
+When the current season runs colder, every line reads too high by several points. Measured on
+2026-10-31 over the first 80 matches of 2026-27, the live models over-predicted Over by
+**+6.4pp to +15.1pp** (median +8.2pp) — larger than the entire payload of "edge" the report
+was quoting. Skipping this step does not produce a conservative report; it produces a report
+whose edge is the bias.
+
+The script writes `cache/bias.json`. If the season has fewer than `--min-matches` (default 30)
+played, it writes an empty bias map and `pm_edge.py` falls back to raw probabilities.
+
+### Step 8: Edge Report
+
+Run `scripts/pm_edge.py`, passing the calibration:
 ```bash
 python scripts/pm_edge.py --predictions cache/predictions.json --pm cache/pm_odds.json \
-    --bankroll 1000 --kelly-frac 0.35 --min-edge 0.03
+    --bankroll 1000 --kelly-frac 0.25 --min-edge 0.05 --max-match-pct 0.06 \
+    --bias cache/bias.json
 ```
 
 Produces the TSV edge table + ranked actionable summary (see "Polymarket Edge Module" below).
-Steps 6–7 are non-fatal: if Polymarket has no open market or the network is down, report
+With `--bias`, the table gains an extra `原始P` column and every row records the applied
+deduction, so the reader can see the raw and calibrated probability side by side.
+
+Steps 6–8 are non-fatal: if Polymarket has no open market or the network is down, report
 "无盘口" / skip the section and still deliver the probability table.
 
-### Step 8: Output
+### Step 9: Output
 
 Present results in three sections (see Output Format below):
-1. Probability table (always)
+1. Probability table (always) — raw **and** calibrated
 2. Polymarket edge table + actionable list (when odds were fetched)
 3. Caveats
+
+**When raw and calibrated disagree in sign, say so and take the calibrated read.** A global
+mean shift moves every row together, so an uncalibrated table that looks uniformly Over-heavy
+flips to uniformly Under-heavy once corrected. Neither direction is match-level information —
+both are the anchor. State which one you used and why.
 
 ---
 
@@ -481,6 +508,14 @@ Rules that follow:
   `nottingham forest` -> `not`, `tottenham hotspur` -> `tot`, `newcastle united` -> `new`.
   A naive vowel-stripping fallback yields `stn` for Aston Villa and silently misses the
   event. The `_SLUG_CODE` table in `pm_odds.py` is authoritative.
+- **Uncalibrated probabilities read as edge.** The forest is anchored to the five-season mean
+  (~10.3 corners). Seasonal corner rates vary by ±0.8, so in a cold season every line
+  over-predicts and every Over row looks like value. On 2026-10-31 the raw table showed 13
+  actionable Over rows worth $343; after subtracting the measured bias, **all 13 reversed sign**
+  and the edge moved entirely to the Under side. Always run `calibrate_bias.py` first.
+- **A uniform flip is not information.** If correcting a global mean shift turns every row from
+  Over to Under, the model contributed nothing — you are looking at where the anchor sits, not
+  at a match-level edge. Say this explicitly rather than presenting the flipped table as a find.
 
 ---
 
@@ -550,6 +585,7 @@ Applies to the Polymarket edge layer specifically:
 | `scripts/build_features.py` | Build walk-forward features with no data leakage |
 | `scripts/train_models.py` | Train seven independent RF classifiers per corner line |
 | `scripts/predict.py` | Predict probabilities for upcoming fixtures with monotonicity fix |
+| `scripts/calibrate_bias.py` | Measure per-line over-prediction on the current season → `bias.json` |
 | `scripts/pm_odds.py` | Fetch live Polymarket total-corner odds (Gamma + CLOB) |
 | `scripts/inject_fixtures.py` | Inject round N of the built-in official fixture list as upcoming rows |
 | `scripts/temp_build_fixtures.py` | Source of the official 2026-27 380-fixture schedule (used by inject_fixtures) |

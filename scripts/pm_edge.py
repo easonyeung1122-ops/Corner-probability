@@ -117,17 +117,31 @@ def load_pm(path: Path) -> dict[tuple[str, str], dict]:
 
 
 def evaluate(pred: dict, pm: dict | None, min_edge: float, bankroll: float,
-             kelly_frac: float, max_stake_pct: float, sides: str) -> list[dict]:
+             kelly_frac: float, max_stake_pct: float, sides: str,
+             bias: dict | None = None) -> list[dict]:
     rows = []
     for line in LINES:
-        p_over = _f((pred.get("probs") or {}).get(str(line)))
-        if p_over is None:
+        p_raw = _f((pred.get("probs") or {}).get(str(line)))
+        if p_raw is None:
             continue
+
+        # --- Bias calibration ----------------------------------------------
+        # A model trained on five seasons averages over their corner rate. When
+        # the current season runs cold, every line reads too high by several
+        # points — on 2026-10-31 by +6.4pp to +15.1pp, which was larger than
+        # the entire quoted edge. calibrate_bias.py measures that offset on
+        # realised results; subtract it here before scoring.
+        adj = (bias or {}).get(str(line))
+        if adj is None:
+            p_over = p_raw
+        else:
+            p_over = min(max(p_raw - float(adj), 0.001), 0.999)
 
         mk = ((pm or {}).get("lines") or {}).get(str(line))
         row = {
             "date": pred.get("date", ""), "home": pred["home"], "away": pred["away"],
             "line": line, "p_over": p_over, "p_under": 1.0 - p_over,
+            "p_raw": p_raw, "bias": adj,
             "has_market": bool(mk),
         }
 
@@ -195,6 +209,8 @@ def evaluate(pred: dict, pm: dict | None, min_edge: float, bankroll: float,
                       and not mk.get("closed") and mk.get("accepting_orders"))
 
         note = []
+        if adj is not None:
+            note.append(f"校准 {float(adj)*100:+.1f}pp（原始 {p_raw*100:.1f}%）")
         if mk.get("closed"):
             note.append("已关闭")
         elif not mk.get("accepting_orders"):
@@ -269,6 +285,10 @@ def main():
     ap.add_argument("--format", choices=["tsv", "markdown"], default="tsv")
     ap.add_argument("--output", default="-", help="Output path, '-' for stdout")
     ap.add_argument("--json-out", default=None, help="Also dump full row data as JSON")
+    ap.add_argument("--bias", default=None,
+                    help="bias.json from calibrate_bias.py — subtract measured per-line "
+                         "over-prediction before scoring edge. Strongly recommended: "
+                         "uncalibrated output conflates model bias with market edge.")
     args = ap.parse_args()
 
     pred_path, pm_path = Path(args.predictions), Path(args.pm)
@@ -280,6 +300,23 @@ def main():
     preds = load_predictions(pred_path)
     pms = load_pm(pm_path)
 
+    bias_meta: dict | None = None
+    bias: dict | None = None
+    if args.bias:
+        bias_path = Path(args.bias)
+        if not bias_path.exists():
+            print(f"ERROR: bias file {bias_path} not found", file=sys.stderr)
+            sys.exit(1)
+        bias_meta = json.loads(bias_path.read_text(encoding="utf-8"))
+        bias = bias_meta.get("bias") or {}
+        if not bias:
+            print(f"[warn] {bias_path} contains no bias values — scoring raw probabilities",
+                  file=sys.stderr)
+            bias, bias_meta = None, None
+        else:
+            print(f"bias calibration: {len(bias)} lines, season "
+                  f"{bias_meta.get('season','?')}, n={bias_meta.get('n_matches','?')}")
+
     all_rows: list[dict] = []
     missing = []
     for key, pred in preds.items():
@@ -287,7 +324,7 @@ def main():
         if pm is None:
             missing.append((pred.get("date", ""), pred["home"], pred["away"]))
         all_rows += evaluate(pred, pm, args.min_edge, args.bankroll,
-                             args.kelly_frac, args.max_stake_pct, args.sides)
+                             args.kelly_frac, args.max_stake_pct, args.sides, bias)
 
     cap_notes = apply_match_cap(all_rows, args.bankroll, args.max_match_pct)
 
@@ -298,16 +335,28 @@ def main():
                f"单笔上限 {args.max_stake_pct:.1%} · 同场合计上限 {args.max_match_pct:.1%} · "
                f"Edge 阈值 {args.min_edge:.1%} · 方向 {args.sides}")
     out.append("# Edge = 模型概率 − 可成交价(ask)；EV% = Edge / ask；仅供参考")
+    if bias_meta:
+        med = bias_meta.get("bias_median")
+        med_s = f"中位 {float(med)*100:+.1f}pp" if med is not None else ""
+        out.append(f"# 概率已校准：按 {bias_meta.get('season','?')} 实测偏差扣减 "
+                   f"({bias_meta.get('n_matches','?')} 场{('，' + med_s) if med_s else ''})。"
+                   f"未校准时模型系统性高估 Over。")
     out.append("")
 
-    cols = ["日期", "主队", "客队", "线", "方向", "模型P", "ask", "bid", "mid",
-            "Edge", "EV%", "建议金额", "份数", "深度(份)", "备注"]
+    cols = ["日期", "主队", "客队", "线", "方向", "模型P"]
+    if bias_meta:
+        cols.append("原始P")
+    cols += ["ask", "bid", "mid", "Edge", "EV%", "建议金额", "份数", "深度(份)", "备注"]
     out.append("\t".join(cols))
     for r in all_rows:
-        out.append("\t".join([
+        cells = [
             r["date"], r["home"], r["away"], f"{r['line']}",
             r["side"] or "—",
             fmt_pct(r["p_over"] if r["side"] != "Under" else r["p_under"]),
+        ]
+        if bias_meta:
+            cells.append(fmt_pct(r["p_raw"] if r["side"] != "Under" else 1.0 - r["p_raw"]))
+        cells += [
             "—" if r["ask"] is None else f"{r['ask']:.3f}",
             "—" if r["bid"] is None else f"{r['bid']:.3f}",
             "—" if r["mid"] is None else f"{r['mid']:.3f}",
@@ -317,7 +366,8 @@ def main():
             fmt_money(r["shares"]) if r["actionable"] else "—",
             "—" if r["depth"] is None else f"{r['depth']:,.0f}",
             r["note"],
-        ]))
+        ]
+        out.append("\t".join(cells))
 
     acts = sorted([r for r in all_rows if r["actionable"]],
                   key=lambda r: r["edge_ask"], reverse=True)

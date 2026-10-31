@@ -65,6 +65,8 @@ def main():
                         help="Kelly 折扣系数（默认 35%%）")
     parser.add_argument("--max-stake-pct", type=float, default=0.05,
                         help="单笔上限占本金比例")
+    parser.add_argument("--max-match-pct", type=float, default=0.06,
+                        help="同场次全部线合计上限（7 条线是嵌套的，必须聚合限仓）")
     parser.add_argument("--min-edge", type=float, default=0.03,
                         help="计入可交易的最小 Edge")
     parser.add_argument("--edge-output", type=str, default=None,
@@ -131,6 +133,18 @@ def main():
     if not run(train_cmd, "Train seven RF models"):
         sys.exit(1)
 
+    # Step 3b: Measure the current season's bias. Without this the edge report
+    # scores raw probabilities, and a RandomForest anchored to the five-season
+    # mean over-predicts every line in a cold season — the "edge" then is the bias.
+    bias_path = cache_dir / "bias.json"
+    run([
+        sys.executable, str(SCRIPT_DIR / "calibrate_bias.py"),
+        "--features", str(features_path),
+        "--merged", str(merged_path),
+        "--models", str(models_dir),
+        "--output", str(bias_path),
+    ], "Calibrate current-season bias", soft=True)
+
     # Step 4: Predict
     predictions_path = cache_dir / "predictions.json"
     predict_cmd = [
@@ -174,10 +188,13 @@ def main():
                 "--bankroll", str(args.bankroll),
                 "--kelly-frac", str(args.kelly_frac),
                 "--max-stake-pct", str(args.max_stake_pct),
+                "--max-match-pct", str(args.max_match_pct),
                 "--min-edge", str(args.min_edge),
                 "--format", "tsv",
                 "--output", args.edge_output or "-",
             ]
+            if bias_path.exists():
+                edge_cmd += ["--bias", str(bias_path)]
             run(edge_cmd, "Polymarket edge report", soft=True)
 
     print(f"\n{'=' * 60}")

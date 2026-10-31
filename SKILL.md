@@ -516,6 +516,21 @@ Rules that follow:
 - **A uniform flip is not information.** If correcting a global mean shift turns every row from
   Over to Under, the model contributed nothing — you are looking at where the anchor sits, not
   at a match-level edge. Say this explicitly rather than presenting the flipped table as a find.
+- **Direction concentration breaks portfolio logic.** When every row lands on the same side,
+  per-bet and per-match caps are both inert: on 2026-10-31 they allowed **$364 = 28% of
+  bankroll on a single view** ("this season's corner rate stays low") spread over 20 rows.
+  That is one bet, sized 20 times. `--max-total-pct` (default 0.10) caps the whole book and
+  `apply_total_cap()` prints the side split plus a warning at ≥80% concentration. Report the
+  concentration ratio next to any stake total.
+- **A wide book is not a quote.** Besides shell books, a market maker can leave resting orders
+  and walk away, producing bids/asks tens of points apart. On 2026-10-31 Newcastle vs Everton
+  quoted `>12.5` at 0.43/0.06 and `>13.5` at 0.49/0.02 with 500 shares a side. The midpoint of
+  such a book is meaningless, so it breaks the monotonicity check by construction. Books wider
+  than 0.20 are excluded from that check; do not report the resulting alarm as arbitrage.
+- **Check kickoff before quoting a stake.** Polymarket's `endDate` on a corner event is the
+  kickoff time in UTC, not the fixture date. On 2026-10-31 the 12:30 UK match closed at
+  12:30Z while the 15:00 ones ran to 15:00Z; a table that only carries dates will happily
+  quote a position on a match already underway.
 
 ---
 
@@ -550,6 +565,7 @@ Allow user to override (otherwise use defaults, do not ask repeatedly):
 | `max_stake_pct` | 0.05 | 单笔上限占本金比例 |
 | `min_edge` | 0.03 | 计入可交易的最小 Edge。**默认按 0.05 使用** |
 | `max_match_pct` | 0.06 | 同场次全部线合计上限。7 条线是一个嵌套 payoff ladder，必须聚合限仓 |
+| `max_total_pct` | 0.10 | 全组合（同轮所有场次）合计上限。**校准后所有 edge 常同向，此时这是首要约束**，单场上限管不住 |
 | `polymarket` | on | `--no-polymarket` 可关闭盘口对比 |
 
 ---

@@ -67,6 +67,8 @@ def main():
                         help="单笔上限占本金比例")
     parser.add_argument("--max-match-pct", type=float, default=0.06,
                         help="同场次全部线合计上限（7 条线是嵌套的，必须聚合限仓）")
+    parser.add_argument("--max-total-pct", type=float, default=0.10,
+                        help="全组合合计上限；所有 edge 同向时这是首要约束")
     parser.add_argument("--min-edge", type=float, default=0.03,
                         help="计入可交易的最小 Edge")
     parser.add_argument("--edge-output", type=str, default=None,
@@ -189,6 +191,7 @@ def main():
                 "--kelly-frac", str(args.kelly_frac),
                 "--max-stake-pct", str(args.max_stake_pct),
                 "--max-match-pct", str(args.max_match_pct),
+                "--max-total-pct", str(args.max_total_pct),
                 "--min-edge", str(args.min_edge),
                 "--format", "tsv",
                 "--output", args.edge_output or "-",

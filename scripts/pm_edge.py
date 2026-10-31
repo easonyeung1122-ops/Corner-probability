@@ -98,6 +98,58 @@ def apply_match_cap(rows: list[dict], bankroll: float,
     return notes
 
 
+def apply_total_cap(rows: list[dict], bankroll: float,
+                    max_total_pct: float) -> list[str]:
+    """Cap the whole book, and report directional concentration.
+
+    Per-match caps do not bound a round where every edge points the same way.
+    After per-line bias calibration the model sits below the market on all seven
+    lines, so every actionable row comes out on the Under side: 20 "independent"
+    bets that are one view — "this season's corner rate stays low" — repeated.
+    On 2026-10-31 the uncapped book was 28% of bankroll on that single view.
+
+    Scales all rows by a common factor when the book breaches the cap, so the
+    cross-match ranking is preserved. Returns notes including the side split.
+    """
+    cap = bankroll * max_total_pct
+    notes: list[str] = []
+    act = [r for r in rows if r["actionable"]]
+    if not act:
+        return notes
+
+    total = sum(r["stake"] for r in act)
+    over = sum(r["stake"] for r in act if r["side"] == "Over")
+    under = total - over
+    n_over = sum(1 for r in act if r["side"] == "Over")
+    n_under = len(act) - n_over
+    notes.append(
+        f"全组合: {len(act)} 条合计 ${total:.0f}（{total / bankroll:.1%} 本金）· "
+        f"Over {n_over} 条 ${over:.0f} / Under {n_under} 条 ${under:.0f}"
+    )
+    dominant = max(over, under)
+    if total > 0 and dominant / total >= 0.80:
+        side = "Over" if over >= under else "Under"
+        notes.append(
+            f"⚠ 方向集中: {dominant / total:.0%} 敞口在 {side} 一个方向。"
+            f"这是同一个判断重复 {n_over if side == 'Over' else n_under} 次，"
+            f"不是 {len(act)} 个独立机会；一方全错则全仓同向亏损。"
+        )
+    if total <= cap:
+        return notes
+
+    factor = cap / total
+    for r in act:
+        r["stake"] *= factor
+        r["shares"] = r["stake"] / r["ask"] if r["ask"] else 0.0
+        r["note"] = ((r["note"] + "; ") if r["note"] else "") + \
+                    f"全组合限仓 {factor:.0%}"
+    notes.append(
+        f"全组合限仓: ${total:.0f} → 压缩至 ${cap:.0f}"
+        f"（{max_total_pct:.0%} 上限，系数 {factor:.2f}）"
+    )
+    return notes
+
+
 def load_predictions(path: Path) -> dict[tuple[str, str], dict]:
     d = json.loads(path.read_text(encoding="utf-8"))
     out = {}
@@ -241,10 +293,22 @@ def market_monotonicity(rows: list[dict]) -> list[str]:
 
     P(Over 7.5) >= ... >= P(Over 13.5) must hold; a violation means Polymarket
     quotes are internally inconsistent (stale book / free cross-line arb).
+
+    Lines whose book is wide are skipped. On 2026-10-31 Newcastle vs Everton
+    quoted >12.5 at 0.43/0.06 and >13.5 at 0.49/0.02 — a 0.37-0.47 spread with
+    500 shares on each side. The mid of such a book is an artefact of a market
+    maker who left a resting order and walked away, so it breaks monotonicity
+    by construction and the alarm is false. Only books tight enough for the mid
+    to mean anything are tested.
     """
+    MAX_SPREAD = 0.20
     by_fx: dict[tuple, dict] = {}
     for r in rows:
         if r["mid"] is None or r["side"] == "":
+            continue
+        if r["ask"] is None or r["bid"] is None:
+            continue
+        if abs(r["ask"] - r["bid"]) > MAX_SPREAD:
             continue
         key = (r["home"], r["away"])
         by_fx.setdefault(key, {})[r["line"]] = (r["mid"] if r["side"] == "Over"
@@ -252,10 +316,16 @@ def market_monotonicity(rows: list[dict]) -> list[str]:
     msgs = []
     for (home, away), mids in by_fx.items():
         seq = [mids.get(l) for l in LINES]
-        if any(v is None for v in seq):
-            continue
-        bad = [(LINES[i], seq[i], LINES[i + 1], seq[i + 1])
-               for i in range(len(seq) - 1) if seq[i] < seq[i + 1] - 1e-9]
+        # Only compare adjacent lines that both have a usable mid. A dropped
+        # wide-spread line leaves a hole, so pairs are filtered individually
+        # rather than discarding the whole fixture.
+        bad = []
+        for i in range(len(seq) - 1):
+            x, y = seq[i], seq[i + 1]
+            if x is None or y is None:
+                continue
+            if x < y - 1e-9:
+                bad.append((LINES[i], x, LINES[i + 1], y))
         if bad:
             detail = "; ".join(f"P(>{a})={x:.3f} < P(>{b})={y:.3f}" for a, x, b, y in bad)
             msgs.append(f"{home} vs {away}: {detail}")
@@ -280,6 +350,8 @@ def main():
                     help="单笔上限占本金比例")
     ap.add_argument("--max-match-pct", type=float, default=0.06,
                     help="同场次全部线合计上限占本金比例（7 条线嵌套，必须聚合限仓）")
+    ap.add_argument("--max-total-pct", type=float, default=0.10,
+                    help="全组合（同轮所有场次）合计上限占本金比例；方向单边集中时首要约束")
     ap.add_argument("--min-edge", type=float, default=0.03, help="计入可交易的最小 Edge")
     ap.add_argument("--sides", choices=["both", "over", "under"], default="both")
     ap.add_argument("--format", choices=["tsv", "markdown"], default="tsv")
@@ -327,12 +399,14 @@ def main():
                              args.kelly_frac, args.max_stake_pct, args.sides, bias)
 
     cap_notes = apply_match_cap(all_rows, args.bankroll, args.max_match_pct)
+    total_notes = apply_total_cap(all_rows, args.bankroll, args.max_total_pct)
 
     out: list[str] = []
     pm_meta = json.loads(pm_path.read_text(encoding="utf-8"))
     out.append(f"# Polymarket Edge Report — 盘口抓取于 {pm_meta.get('fetched_at','?')}")
     out.append(f"# 本金 {args.bankroll:,.0f} USDC · {args.kelly_frac:.0%} Kelly · "
                f"单笔上限 {args.max_stake_pct:.1%} · 同场合计上限 {args.max_match_pct:.1%} · "
+               f"全组合上限 {args.max_total_pct:.1%} · "
                f"Edge 阈值 {args.min_edge:.1%} · 方向 {args.sides}")
     out.append("# Edge = 模型概率 − 可成交价(ask)；EV% = Edge / ask；仅供参考")
     if bias_meta:
@@ -395,6 +469,12 @@ def main():
         out.append("")
         out.append(f"# ——— 单场聚合限仓（上限 {args.max_match_pct:.0%} 本金）———")
         for n in cap_notes:
+            out.append(f"# {n}")
+
+    if total_notes:
+        out.append("")
+        out.append(f"# ——— 全组合敞口（上限 {args.max_total_pct:.0%} 本金）———")
+        for n in total_notes:
             out.append(f"# {n}")
 
     if missing:
